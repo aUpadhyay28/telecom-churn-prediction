@@ -69,10 +69,93 @@ def check_models_exist():
     ]
     return all(os.path.exists(file) for file in model_files)
 
+def validate_training_data(df):
+    """
+    Validate uploaded training data against expected schema.
+    
+    Args:
+        df (pd.DataFrame): Uploaded training data
+        
+    Returns:
+        dict: Validation result with 'valid' flag and 'errors' list
+    """
+    result = {'valid': True, 'errors': []}
+    
+    # Get expected schema
+    data_processor = ChurnDataProcessor()
+    feature_info = data_processor.get_feature_info()
+    expected_columns = set(feature_info.keys())
+    expected_columns.add('Churn')  # Add target column
+    
+    # Check columns
+    actual_columns = set(df.columns)
+    missing_columns = expected_columns - actual_columns
+    extra_columns = actual_columns - expected_columns
+    
+    if missing_columns:
+        result['valid'] = False
+        result['missing_columns'] = list(missing_columns)
+        result['errors'].append(f"Missing required columns: {', '.join(missing_columns)}")
+    
+    if extra_columns:
+        result['extra_columns'] = list(extra_columns)
+        result['errors'].append(f"Unexpected columns found: {', '.join(extra_columns)} (these will be ignored)")
+    
+    # Validate Churn column values if present
+    if 'Churn' in df.columns:
+        valid_churn_values = {'Yes', 'No', 'yes', 'no', 'YES', 'NO', '1', '0', 1, 0}
+        actual_churn_values = set(df['Churn'].dropna().unique())
+        invalid_churn = actual_churn_values - valid_churn_values
+        
+        if invalid_churn:
+            result['valid'] = False
+            result['errors'].append(f"Invalid Churn values: {invalid_churn}. Must be 'Yes', 'No', '1', '0', or similar variants.")
+    
+    # Check for minimum data requirements
+    if len(df) < 10:
+        result['valid'] = False
+        result['errors'].append("Dataset too small. Need at least 10 records for training.")
+    
+    # Check for class balance
+    if 'Churn' in df.columns:
+        churn_counts = df['Churn'].value_counts()
+        if len(churn_counts) < 2:
+            result['valid'] = False
+            result['errors'].append("Dataset must contain both churned and non-churned customers.")
+        else:
+            min_class_ratio = min(churn_counts) / len(df)
+            if min_class_ratio < 0.05:  # Less than 5% of minority class
+                result['errors'].append(f"Warning: Severe class imbalance detected. Minority class: {min_class_ratio:.1%}")
+    
+    # Validate data types for numerical columns
+    for feature, info in feature_info.items():
+        if feature in df.columns and info['type'] == 'numerical':
+            try:
+                pd.to_numeric(df[feature], errors='coerce')
+            except:
+                result['valid'] = False
+                result['errors'].append(f"Column '{feature}' should contain numerical values.")
+    
+    return result
+
 def train_models_page():
     """Model training page."""
     st.title("🤖 Model Training")
     
+    # Training mode selection
+    training_mode = st.radio(
+        "Choose training mode:",
+        ["📊 Train with Default Dataset", "📤 Upload New Training Data"],
+        horizontal=True
+    )
+    
+    if training_mode == "📊 Train with Default Dataset":
+        train_with_default_data()
+    else:
+        train_with_uploaded_data()
+
+def train_with_default_data():
+    """Train models with the default dataset."""
     if not st.session_state.data_loaded:
         st.warning("Please load data first.")
         if st.button("Load Data"):
@@ -98,17 +181,113 @@ def train_models_page():
     st.subheader("Dataset Preview")
     st.dataframe(df.head(), use_container_width=True)
     
-    # Training section
-    st.subheader("Model Training")
+    perform_training(df, "default dataset")
+
+def train_with_uploaded_data():
+    """Train models with uploaded training data."""
+    st.subheader("📤 Upload New Training Data")
+    
+    st.info("""
+    Upload a CSV file with training data to retrain the models.
+    The CSV should contain all customer features plus a 'Churn' column with 'Yes'/'No' values.
+    """)
+    
+    # File upload
+    uploaded_file = st.file_uploader(
+        "Choose a CSV file for training",
+        type=['csv'],
+        help="Upload a CSV file with customer data including the 'Churn' column"
+    )
+    
+    if uploaded_file is not None:
+        try:
+            # Read the uploaded file
+            new_df = pd.read_csv(uploaded_file)
+            
+            st.success(f"✅ File uploaded successfully! Found {len(new_df)} records.")
+            
+            # Show preview of uploaded data
+            st.subheader("📋 Training Data Preview")
+            st.dataframe(new_df.head(), use_container_width=True)
+            
+            # Validate schema and data quality
+            validation_result = validate_training_data(new_df)
+            if not validation_result['valid']:
+                st.error("❌ Data validation failed:")
+                for error in validation_result['errors']:
+                    st.error(f"• {error}")
+                
+                # Show expected schema
+                if validation_result.get('missing_columns') or validation_result.get('extra_columns'):
+                    st.subheader("📋 Expected Data Schema")
+                    data_processor = ChurnDataProcessor()
+                    feature_info = data_processor.get_feature_info()
+                    expected_columns = list(feature_info.keys()) + ['Churn']
+                    st.info(f"Expected columns: {', '.join(expected_columns)}")
+                    
+                    # Download training template
+                    if st.button("📥 Download Training Data Template"):
+                        template_data = {}
+                        for feature, info in feature_info.items():
+                            if info['type'] == 'categorical':
+                                template_data[feature] = info['options'][0]
+                            else:
+                                template_data[feature] = info.get('default', info.get('min', 0))
+                        template_data['Churn'] = 'No'  # Add target column
+                        
+                        template_df = pd.DataFrame([template_data])
+                        template_csv = template_df.to_csv(index=False)
+                        st.download_button(
+                            label="📥 Download Training Template CSV",
+                            data=template_csv,
+                            file_name="training_data_template.csv",
+                            mime="text/csv"
+                        )
+                
+                return
+            
+            # Display dataset info
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Records", len(new_df))
+            with col2:
+                churn_count = len(new_df[new_df['Churn'] == 'Yes'])
+                st.metric("Churned Customers", churn_count)
+            with col3:
+                churn_rate = (churn_count / len(new_df) * 100) if len(new_df) > 0 else 0
+                st.metric("Churn Rate", f"{churn_rate:.1f}%")
+            
+            # Check data quality
+            st.subheader("📊 Data Quality Check")
+            missing_data = new_df.isnull().sum()
+            if missing_data.sum() > 0:
+                st.warning("⚠️ Missing data detected:")
+                st.dataframe(missing_data[missing_data > 0].to_frame('Missing Count'), use_container_width=True)
+            else:
+                st.success("✅ No missing data detected")
+            
+            # Training section
+            if len(new_df) < 100:
+                st.warning("⚠️ Dataset is quite small. Consider adding more data for better model performance.")
+            
+            perform_training(new_df, "uploaded dataset")
+            
+        except Exception as e:
+            st.error(f"Error reading CSV file: {str(e)}")
+            st.info("Please ensure the file is a valid CSV format with proper headers.")
+
+def perform_training(df, dataset_name):
+    """Perform the actual model training."""
+    st.subheader("🤖 Model Training")
     
     models_exist = check_models_exist()
     if models_exist:
-        st.info("Trained models found. You can retrain or proceed to predictions.")
+        st.info("Trained models found. You can retrain with new data or proceed to predictions.")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("Train All Models", type="primary"):
+        if st.button(f"Train All Models with {dataset_name.title()}", type="primary"):
             with st.spinner("Training models... This may take a few minutes."):
                 try:
                     # Initialize components
@@ -123,15 +302,23 @@ def train_models_page():
                     data_processor.save_preprocessor()
                     
                     st.session_state.models_trained = True
-                    st.success("Models trained and saved successfully!")
+                    st.success(f"✅ Models trained and saved successfully using {dataset_name}!")
                     
                     # Display performance metrics
-                    st.subheader("Model Performance")
+                    st.subheader("📈 Model Performance")
                     performance_df = pd.DataFrame(model_trainer.model_performance).T
                     st.dataframe(performance_df, use_container_width=True)
                     
+                    # Performance comparison if previous models existed
+                    if models_exist:
+                        st.info("🔄 Models have been retrained and updated.")
+                    
+                    # Clear cache to reload updated models
+                    st.cache_resource.clear()
+                    
                 except Exception as e:
                     st.error(f"Training failed: {str(e)}")
+                    st.error("Please check your data format and try again.")
     
     with col2:
         if models_exist and st.button("Load Existing Models"):
