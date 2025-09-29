@@ -135,12 +135,81 @@ class ChurnPredictor:
         if not self.models_loaded:
             return [{"error": "Models not loaded properly"}] * len(customer_data_list)
         
-        results = []
-        for customer_data in customer_data_list:
-            result = self.predict_single_customer(customer_data)
-            results.append(result)
-        
-        return results
+        try:
+            # Convert to DataFrame for efficient processing
+            customer_df = pd.DataFrame(customer_data_list)
+            
+            # Preprocess all customers at once
+            X_batch = self.data_processor.prepare_batch_prediction(customer_df)
+            
+            # Make predictions with all models
+            results = []
+            
+            for i in range(len(customer_data_list)):
+                X_single = X_batch[i:i+1]  # Get single row but keep 2D shape
+                predictions = {}
+                
+                for model_name, model in self.model_trainer.models.items():
+                    try:
+                        # Get prediction
+                        pred = model.predict(X_single)[0]
+                        
+                        # Get probability if available
+                        if hasattr(model, 'predict_proba'):
+                            proba = model.predict_proba(X_single)[0]
+                            confidence = max(proba)
+                            churn_probability = proba[1] if len(proba) > 1 else proba[0]
+                        else:
+                            confidence = 0.8  # Default confidence for models without probability
+                            churn_probability = pred
+                        
+                        # Convert prediction to human readable
+                        if 'target' in self.data_processor.label_encoders:
+                            pred_label = self.data_processor.label_encoders['target'].inverse_transform([pred])[0]
+                        else:
+                            pred_label = "Yes" if pred == 1 else "No"
+                        
+                        predictions[model_name] = {
+                            'prediction': pred_label,
+                            'confidence': float(confidence),
+                            'churn_probability': float(churn_probability),
+                            'prediction_numeric': int(pred)
+                        }
+                        
+                    except Exception as e:
+                        predictions[model_name] = {
+                            'error': f"Prediction failed: {str(e)}"
+                        }
+                
+                # Calculate ensemble prediction (majority vote)
+                if len(predictions) >= 3:
+                    valid_predictions = [p for p in predictions.values() if 'error' not in p]
+                    if valid_predictions:
+                        churn_votes = sum(1 for p in valid_predictions if p['prediction'] == 'Yes')
+                        total_votes = len(valid_predictions)
+                        
+                        ensemble_pred = "Yes" if churn_votes > total_votes / 2 else "No"
+                        ensemble_confidence = churn_votes / total_votes if ensemble_pred == "Yes" else (total_votes - churn_votes) / total_votes
+                        
+                        predictions['consensus'] = {
+                            'prediction': ensemble_pred,
+                            'confidence': float(ensemble_confidence),
+                            'churn_probability': float(churn_votes / total_votes),
+                            'votes': f"{churn_votes}/{total_votes}"
+                        }
+                
+                results.append(predictions)
+            
+            return results
+            
+        except Exception as e:
+            # Fallback to individual processing if batch fails
+            print(f"Batch processing failed, falling back to individual: {str(e)}")
+            results = []
+            for customer_data in customer_data_list:
+                result = self.predict_single_customer(customer_data)
+                results.append(result)
+            return results
     
     def get_model_performance(self):
         """

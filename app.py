@@ -172,6 +172,20 @@ def prediction_page():
         st.error("Models not loaded properly. Please retrain models.")
         return
     
+    # Prediction mode selection
+    prediction_mode = st.radio(
+        "Choose prediction mode:",
+        ["🔮 Single Customer", "📊 Batch Prediction (CSV Upload)"],
+        horizontal=True
+    )
+    
+    if prediction_mode == "🔮 Single Customer":
+        single_customer_prediction(predictor)
+    else:
+        batch_prediction(predictor)
+
+def single_customer_prediction(predictor):
+    """Handle single customer prediction."""
     st.subheader("Enter Customer Information")
     
     # Get feature info for form generation
@@ -216,69 +230,245 @@ def prediction_page():
         submitted = st.form_submit_button("Predict Churn", type="primary")
     
     if submitted:
-        with st.spinner("Making predictions..."):
-            try:
-                # Make prediction
-                predictions = predictor.predict_single_customer(customer_data)
+        display_single_prediction_results(predictor, customer_data)
+
+def display_single_prediction_results(predictor, customer_data):
+    """Display results for single customer prediction."""
+    with st.spinner("Making predictions..."):
+        try:
+            # Make prediction
+            predictions = predictor.predict_single_customer(customer_data)
+            
+            # Display results
+            st.subheader("🎯 Prediction Results")
+            
+            # Create columns for model results
+            model_names = [k for k in predictions.keys() if 'error' not in predictions[k]]
+            
+            if model_names:
+                # Display consensus if available
+                if 'consensus' in predictions:
+                    consensus = predictions['consensus']
+                    
+                    # Big result display
+                    result_color = "🔴" if consensus['prediction'] == 'Yes' else "🟢"
+                    st.markdown(f"""
+                    <div style="text-align: center; padding: 20px; border-radius: 10px; background-color: {'#ffebee' if consensus['prediction'] == 'Yes' else '#e8f5e8'};">
+                        <h2>{result_color} Customer Churn Prediction: {consensus['prediction']}</h2>
+                        <p style="font-size: 18px;">Confidence: {consensus['confidence']:.1%}</p>
+                        <p>Consensus: {predictions['consensus'].get('votes', 'N/A')}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
                 
-                # Display results
-                st.subheader("🎯 Prediction Results")
+                # Individual model results
+                st.subheader("Individual Model Predictions")
+                cols = st.columns(len(model_names))
                 
-                # Create columns for model results
-                model_names = [k for k in predictions.keys() if 'error' not in predictions[k]]
+                for i, model_name in enumerate(model_names):
+                    if model_name != 'consensus':
+                        with cols[i % len(cols)]:
+                            result = predictions[model_name]
+                            if 'error' not in result:
+                                icon = "🔴" if result['prediction'] == 'Yes' else "🟢"
+                                st.markdown(f"""
+                                **{model_name.replace('_', ' ').title()}**  
+                                {icon} {result['prediction']}  
+                                Confidence: {result['confidence']:.1%}
+                                """)
                 
-                if model_names:
-                    # Display consensus if available
-                    if 'consensus' in predictions:
-                        consensus = predictions['consensus']
-                        
-                        # Big result display
-                        result_color = "🔴" if consensus['prediction'] == 'Yes' else "🟢"
-                        st.markdown(f"""
-                        <div style="text-align: center; padding: 20px; border-radius: 10px; background-color: {'#ffebee' if consensus['prediction'] == 'Yes' else '#e8f5e8'};">
-                            <h2>{result_color} Customer Churn Prediction: {consensus['prediction']}</h2>
-                            <p style="font-size: 18px;">Confidence: {consensus['confidence']:.1%}</p>
-                            <p>Consensus: {predictions['consensus'].get('votes', 'N/A')}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    
-                    # Individual model results
-                    st.subheader("Individual Model Predictions")
-                    cols = st.columns(len(model_names))
-                    
-                    for i, model_name in enumerate(model_names):
-                        if model_name != 'consensus':
-                            with cols[i % len(cols)]:
-                                result = predictions[model_name]
-                                if 'error' not in result:
-                                    icon = "🔴" if result['prediction'] == 'Yes' else "🟢"
-                                    st.markdown(f"""
-                                    **{model_name.replace('_', ' ').title()}**  
-                                    {icon} {result['prediction']}  
-                                    Confidence: {result['confidence']:.1%}
-                                    """)
-                    
-                    # Visualize prediction confidence
-                    viz = ChurnVisualizations()
-                    confidence_fig = viz.plot_prediction_confidence(predictions)
-                    st.plotly_chart(confidence_fig, use_container_width=True)
-                    
-                    # Explanation (if available)
-                    st.subheader("🔍 Prediction Explanation")
-                    explanation = predictor.explain_prediction(customer_data, 'decision_tree')
-                    
-                    if 'error' not in explanation and 'top_features' in explanation:
-                        st.write("**Top factors influencing this prediction:**")
-                        for i, feature in enumerate(explanation['top_features'], 1):
-                            st.write(f"{i}. **{feature['feature']}**: {feature['value']} (Importance: {feature['importance']:.3f})")
-                    else:
-                        st.info("Detailed explanation not available.")
+                # Visualize prediction confidence
+                viz = ChurnVisualizations()
+                confidence_fig = viz.plot_prediction_confidence(predictions)
+                st.plotly_chart(confidence_fig, use_container_width=True)
                 
+                # Explanation (if available)
+                st.subheader("🔍 Prediction Explanation")
+                explanation = predictor.explain_prediction(customer_data, 'decision_tree')
+                
+                if 'error' not in explanation and 'top_features' in explanation:
+                    st.write("**Top factors influencing this prediction:**")
+                    for i, feature in enumerate(explanation['top_features'], 1):
+                        st.write(f"{i}. **{feature['feature']}**: {feature['value']} (Importance: {feature['importance']:.3f})")
                 else:
-                    st.error("All model predictions failed. Please check the input data.")
-                    
-            except Exception as e:
-                st.error(f"Prediction failed: {str(e)}")
+                    st.info("Detailed explanation not available.")
+            
+            else:
+                st.error("All model predictions failed. Please check the input data.")
+                
+        except Exception as e:
+            st.error(f"Prediction failed: {str(e)}")
+
+def batch_prediction(predictor):
+    """Handle batch prediction from CSV upload."""
+    st.subheader("📊 Batch Prediction")
+    
+    st.info("""
+    Upload a CSV file with customer data to predict churn for multiple customers at once.
+    The CSV should contain the same columns as the training data (excluding 'Churn' column).
+    """)
+    
+    # Sample CSV download
+    st.subheader("📄 Sample CSV Format")
+    data_processor = ChurnDataProcessor()
+    feature_info = data_processor.get_feature_info()
+    
+    # Create sample data dynamically from feature_info
+    sample_data = {}
+    for feature, info in feature_info.items():
+        if info['type'] == 'categorical':
+            sample_data[feature] = info['options'][0]  # Use first option as default
+        elif info['type'] == 'numerical':
+            sample_data[feature] = info.get('default', info.get('min', 0))  # Use default or min value
+    
+    sample_df = pd.DataFrame([sample_data])
+    st.dataframe(sample_df, use_container_width=True)
+    
+    # Download sample CSV
+    sample_csv = sample_df.to_csv(index=False)
+    st.download_button(
+        label="📥 Download Sample CSV Template",
+        data=sample_csv,
+        file_name="customer_data_template.csv",
+        mime="text/csv"
+    )
+    
+    # File upload
+    st.subheader("📤 Upload Customer Data")
+    uploaded_file = st.file_uploader(
+        "Choose a CSV file",
+        type=['csv'],
+        help="Upload a CSV file with customer data for batch prediction"
+    )
+    
+    if uploaded_file is not None:
+        try:
+            # Read the uploaded file
+            batch_df = pd.read_csv(uploaded_file)
+            
+            st.success(f"✅ File uploaded successfully! Found {len(batch_df)} customers.")
+            
+            # Show preview of uploaded data
+            st.subheader("📋 Data Preview")
+            st.dataframe(batch_df.head(), use_container_width=True)
+            
+            # Validate columns
+            required_columns = list(feature_info.keys())
+            missing_columns = [col for col in required_columns if col not in batch_df.columns]
+            
+            if missing_columns:
+                st.error(f"❌ Missing required columns: {', '.join(missing_columns)}")
+                st.info("Please ensure your CSV contains all required columns as shown in the sample template.")
+                return
+            
+            # Predict button
+            if st.button("🔮 Predict Churn for All Customers", type="primary"):
+                with st.spinner(f"Making predictions for {len(batch_df)} customers..."):
+                    try:
+                        # Convert DataFrame to list of dictionaries
+                        customer_list = batch_df.to_dict('records')
+                        
+                        # Make batch predictions
+                        batch_results = predictor.predict_batch(customer_list)
+                        
+                        # Process results
+                        results_data = []
+                        for i, (customer, predictions) in enumerate(zip(customer_list, batch_results)):
+                            if 'error' not in predictions:
+                                # Get consensus prediction if available
+                                if 'consensus' in predictions:
+                                    churn_pred = predictions['consensus']['prediction']
+                                    confidence = predictions['consensus']['confidence']
+                                else:
+                                    # Use first available model prediction
+                                    valid_preds = [p for p in predictions.values() if 'error' not in p]
+                                    if valid_preds:
+                                        churn_pred = valid_preds[0]['prediction']
+                                        confidence = valid_preds[0]['confidence']
+                                    else:
+                                        churn_pred = 'Error'
+                                        confidence = 0.0
+                                
+                                # Add individual model predictions
+                                row_data = {
+                                    'Customer_ID': i + 1,
+                                    'Churn_Prediction': churn_pred,
+                                    'Confidence': confidence,
+                                    'Risk_Level': 'High' if churn_pred == 'Yes' and confidence > 0.7 else 'Medium' if churn_pred == 'Yes' else 'Low'
+                                }
+                                
+                                # Add individual model results
+                                for model_name, result in predictions.items():
+                                    if model_name != 'consensus' and 'error' not in result:
+                                        row_data[f'{model_name}_prediction'] = result['prediction']
+                                        row_data[f'{model_name}_confidence'] = result['confidence']
+                                
+                                results_data.append(row_data)
+                            else:
+                                results_data.append({
+                                    'Customer_ID': i + 1,
+                                    'Churn_Prediction': 'Error',
+                                    'Confidence': 0.0,
+                                    'Risk_Level': 'Unknown',
+                                    'Error': predictions.get('error', 'Unknown error')
+                                })
+                        
+                        # Create results DataFrame
+                        results_df = pd.DataFrame(results_data)
+                        
+                        # Display results summary
+                        st.subheader("📊 Batch Prediction Results")
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            total_customers = len(results_df)
+                            st.metric("Total Customers", total_customers)
+                        with col2:
+                            churn_count = len(results_df[results_df['Churn_Prediction'] == 'Yes'])
+                            st.metric("Predicted Churners", churn_count)
+                        with col3:
+                            churn_rate = (churn_count / total_customers * 100) if total_customers > 0 else 0
+                            st.metric("Churn Rate", f"{churn_rate:.1f}%")
+                        with col4:
+                            high_risk = len(results_df[results_df['Risk_Level'] == 'High'])
+                            st.metric("High Risk Customers", high_risk)
+                        
+                        # Display detailed results
+                        st.subheader("📋 Detailed Results")
+                        st.dataframe(results_df, use_container_width=True)
+                        
+                        # Download results
+                        results_csv = results_df.to_csv(index=False)
+                        st.download_button(
+                            label="📥 Download Prediction Results",
+                            data=results_csv,
+                            file_name=f"churn_predictions_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv"
+                        )
+                        
+                        # Risk distribution visualization
+                        if 'Risk_Level' in results_df.columns:
+                            risk_counts = results_df['Risk_Level'].value_counts()
+                            
+                            import plotly.express as px
+                            fig = px.pie(
+                                values=risk_counts.values,
+                                names=risk_counts.index,
+                                title="Customer Risk Distribution",
+                                color_discrete_map={
+                                    'High': '#e74c3c',
+                                    'Medium': '#f39c12',
+                                    'Low': '#27ae60',
+                                    'Unknown': '#95a5a6'
+                                }
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                    except Exception as e:
+                        st.error(f"Batch prediction failed: {str(e)}")
+        
+        except Exception as e:
+            st.error(f"Error reading CSV file: {str(e)}")
+            st.info("Please ensure the file is a valid CSV format.")
 
 def analytics_page():
     """Data analytics and visualization page."""

@@ -228,29 +228,49 @@ class ChurnDataProcessor:
         # Create DataFrame from customer data
         df_single = pd.DataFrame([customer_data])
         
+        return self.prepare_batch_prediction(df_single)[0]
+    
+    def prepare_batch_prediction(self, customer_df):
+        """
+        Prepare multiple customers' data for prediction.
+        
+        Args:
+            customer_df (pd.DataFrame): DataFrame with customer features
+            
+        Returns:
+            np.array: Processed feature matrix
+        """
+        df_batch = customer_df.copy()
+        
+        # Remove unnecessary columns like 'Churn' if present
+        if 'Churn' in df_batch.columns:
+            df_batch = df_batch.drop('Churn', axis=1)
+        if 'customerID' in df_batch.columns:
+            df_batch = df_batch.drop('customerID', axis=1)
+        
         # Clean data (basic cleaning)
-        df_single['TotalCharges'] = pd.to_numeric(df_single['TotalCharges'], errors='coerce')
-        df_single['TotalCharges'].fillna(0, inplace=True)
-        df_single['SeniorCitizen'] = df_single['SeniorCitizen'].astype(str)
+        df_batch['TotalCharges'] = pd.to_numeric(df_batch['TotalCharges'], errors='coerce')
+        df_batch['TotalCharges'].fillna(0, inplace=True)
+        df_batch['SeniorCitizen'] = df_batch['SeniorCitizen'].astype(str)
         
         # Engineer features
-        df_single = self.engineer_features(df_single)
+        df_batch = self.engineer_features(df_batch)
         
         # Encode categorical features (using existing encoders)
-        df_single = self.encode_categorical_features(df_single, fit_encoders=False)
+        df_batch = self.encode_categorical_features(df_batch, fit_encoders=False)
         
         # Ensure all required columns are present
         for col in self.feature_columns:
-            if col not in df_single.columns:
-                df_single[col] = 0
+            if col not in df_batch.columns:
+                df_batch[col] = 0
         
-        # Select and order features
-        X_single = df_single[self.feature_columns]
+        # Select and order features to match training
+        X_batch = df_batch[self.feature_columns]
         
         # Scale features
-        X_single_scaled = self.scale_features(X_single, fit_scaler=False)
+        X_batch_scaled = self.scale_features(X_batch, fit_scaler=False)
         
-        return X_single_scaled
+        return X_batch_scaled
     
     def save_preprocessor(self, filepath='models/preprocessor.joblib'):
         """
