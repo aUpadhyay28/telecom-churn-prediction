@@ -748,33 +748,459 @@ def analytics_page():
             st.warning("No trained models found. Please train models first to see performance metrics.")
     
     with tab4:
-        st.subheader("Raw Data Explorer")
+        # Customer Segmentation Analysis
+        customer_segmentation_analysis(df, viz)
+
+def customer_segmentation_analysis(df, viz):
+    """Perform customer segmentation analysis using clustering algorithms."""
+    st.subheader("🎯 Customer Segmentation Analysis")
+    
+    # Import clustering libraries
+    from sklearn.cluster import KMeans
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.decomposition import PCA
+    import plotly.express as px
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    
+    # Segmentation type selection
+    segmentation_type = st.selectbox(
+        "Choose Segmentation Analysis:",
+        ["📊 Risk-Based Segmentation", "💰 Value-Based Segmentation", "📈 Behavioral Segmentation", "🤖 ML-Based Clustering"]
+    )
+    
+    if segmentation_type == "📊 Risk-Based Segmentation":
+        risk_based_segmentation(df)
+    elif segmentation_type == "💰 Value-Based Segmentation":
+        value_based_segmentation(df)
+    elif segmentation_type == "📈 Behavioral Segmentation":
+        behavioral_segmentation(df)
+    else:
+        ml_based_clustering(df)
+
+def risk_based_segmentation(df):
+    """Segment customers by churn risk levels."""
+    st.subheader("📊 Risk-Based Customer Segmentation")
+    
+    # Calculate risk score based on multiple factors
+    risk_factors = []
+    
+    # Contract type risk (month-to-month = high risk)
+    if 'Contract' in df.columns:
+        contract_risk = df['Contract'].map({
+            'Month-to-month': 3,
+            'One year': 2,
+            'Two year': 1
+        }).fillna(2)
+        risk_factors.append(contract_risk)
+    
+    # Payment method risk
+    if 'PaymentMethod' in df.columns:
+        payment_risk = df['PaymentMethod'].map({
+            'Electronic check': 3,
+            'Mailed check': 2,
+            'Bank transfer (automatic)': 1,
+            'Credit card (automatic)': 1
+        }).fillna(2)
+        risk_factors.append(payment_risk)
+    
+    # Tenure risk (lower tenure = higher risk)
+    if 'tenure' in df.columns:
+        tenure_risk = pd.cut(df['tenure'], bins=[0, 12, 36, 100], labels=[3, 2, 1]).astype(float)
+        risk_factors.append(tenure_risk)
+    
+    # Calculate combined risk score
+    if risk_factors:
+        df_analysis = df.copy()
+        df_analysis['risk_score'] = sum(risk_factors) / len(risk_factors)
         
-        # Data filtering
+        # Define risk segments
+        df_analysis['risk_segment'] = pd.cut(
+            df_analysis['risk_score'],
+            bins=[0, 1.5, 2.5, 3],
+            labels=['Low Risk', 'Medium Risk', 'High Risk']
+        )
+        
+        # Display risk distribution
         col1, col2 = st.columns(2)
+        
         with col1:
-            churn_filter = st.selectbox("Filter by Churn", ['All', 'Yes', 'No'])
+            risk_counts = df_analysis['risk_segment'].value_counts()
+            risk_fig = px.pie(
+                values=risk_counts.values,
+                names=risk_counts.index,
+                title="Customer Risk Distribution",
+                color_discrete_map={
+                    'Low Risk': '#28a745',
+                    'Medium Risk': '#ffc107', 
+                    'High Risk': '#dc3545'
+                }
+            )
+            st.plotly_chart(risk_fig, use_container_width=True)
+        
         with col2:
-            contract_filter = st.selectbox("Filter by Contract", ['All'] + df['Contract'].unique().tolist() if 'Contract' in df.columns else ['All'])
+            # Risk vs actual churn rate
+            if 'Churn' in df.columns:
+                churn_by_risk = df_analysis.groupby('risk_segment')['Churn'].apply(
+                    lambda x: (x == 'Yes').mean() * 100
+                ).reset_index()
+                churn_by_risk.columns = ['Risk Segment', 'Churn Rate (%)']
+                
+                risk_churn_fig = px.bar(
+                    churn_by_risk,
+                    x='Risk Segment',
+                    y='Churn Rate (%)',
+                    title="Actual Churn Rate by Risk Segment",
+                    color='Churn Rate (%)',
+                    color_continuous_scale='Reds'
+                )
+                st.plotly_chart(risk_churn_fig, use_container_width=True)
         
-        # Apply filters
-        filtered_df = df.copy()
-        if churn_filter != 'All':
-            filtered_df = filtered_df[filtered_df['Churn'] == churn_filter]
-        if contract_filter != 'All':
-            filtered_df = filtered_df[filtered_df['Contract'] == contract_filter]
+        # Risk segment characteristics
+        st.subheader("📋 Risk Segment Characteristics")
         
-        st.write(f"Showing {len(filtered_df)} out of {len(df)} customers")
-        st.dataframe(filtered_df, use_container_width=True)
+        segment_stats = []
+        for segment in ['Low Risk', 'Medium Risk', 'High Risk']:
+            segment_data = df_analysis[df_analysis['risk_segment'] == segment]
+            if len(segment_data) > 0:
+                stats = {
+                    'Segment': segment,
+                    'Count': len(segment_data),
+                    'Avg Tenure': segment_data['tenure'].mean() if 'tenure' in segment_data.columns else 0,
+                    'Avg Monthly Charges': segment_data['MonthlyCharges'].mean() if 'MonthlyCharges' in segment_data.columns else 0,
+                    'Actual Churn Rate': (segment_data['Churn'] == 'Yes').mean() * 100 if 'Churn' in segment_data.columns else 0
+                }
+                segment_stats.append(stats)
         
-        # Download filtered data
-        csv = filtered_df.to_csv(index=False)
+        if segment_stats:
+            segment_df = pd.DataFrame(segment_stats)
+            st.dataframe(segment_df, use_container_width=True)
+    else:
+        st.warning("Insufficient data for risk-based segmentation analysis.")
+
+def value_based_segmentation(df):
+    """Segment customers by monetary value and usage patterns."""
+    st.subheader("💰 Value-Based Customer Segmentation")
+    
+    if 'MonthlyCharges' in df.columns and 'tenure' in df.columns:
+        df_analysis = df.copy()
+        
+        # Calculate customer lifetime value
+        df_analysis['customer_lifetime_value'] = df_analysis['MonthlyCharges'] * df_analysis['tenure']
+        
+        # Create value segments using quartiles
+        df_analysis['value_segment'] = pd.qcut(
+            df_analysis['customer_lifetime_value'],
+            q=4,
+            labels=['Low Value', 'Medium Value', 'High Value', 'Premium Value']
+        )
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Value distribution
+            value_counts = df_analysis['value_segment'].value_counts()
+            value_fig = px.pie(
+                values=value_counts.values,
+                names=value_counts.index,
+                title="Customer Value Distribution",
+                color_discrete_sequence=px.colors.sequential.Viridis
+            )
+            st.plotly_chart(value_fig, use_container_width=True)
+        
+        with col2:
+            # Value vs Churn relationship
+            if 'Churn' in df.columns:
+                churn_by_value = df_analysis.groupby('value_segment')['Churn'].apply(
+                    lambda x: (x == 'Yes').mean() * 100
+                ).reset_index()
+                churn_by_value.columns = ['Value Segment', 'Churn Rate (%)']
+                
+                value_churn_fig = px.bar(
+                    churn_by_value,
+                    x='Value Segment',
+                    y='Churn Rate (%)',
+                    title="Churn Rate by Customer Value",
+                    color='Churn Rate (%)',
+                    color_continuous_scale='RdYlGn_r'
+                )
+                st.plotly_chart(value_churn_fig, use_container_width=True)
+        
+        # Value segment analysis
+        st.subheader("📊 Value Segment Analysis")
+        
+        value_stats = []
+        for segment in ['Low Value', 'Medium Value', 'High Value', 'Premium Value']:
+            segment_data = df_analysis[df_analysis['value_segment'] == segment]
+            if len(segment_data) > 0:
+                stats = {
+                    'Segment': segment,
+                    'Count': len(segment_data),
+                    'Avg CLV': segment_data['customer_lifetime_value'].mean(),
+                    'Avg Monthly Charges': segment_data['MonthlyCharges'].mean(),
+                    'Avg Tenure': segment_data['tenure'].mean(),
+                    'Churn Rate (%)': (segment_data['Churn'] == 'Yes').mean() * 100 if 'Churn' in segment_data.columns else 0
+                }
+                value_stats.append(stats)
+        
+        if value_stats:
+            value_df = pd.DataFrame(value_stats)
+            # Format numeric columns
+            for col in ['Avg CLV', 'Avg Monthly Charges', 'Avg Tenure', 'Churn Rate (%)']:
+                if col in value_df.columns:
+                    value_df[col] = value_df[col].round(2)
+            st.dataframe(value_df, use_container_width=True)
+        
+        # CLV distribution visualization
+        st.subheader("📈 Customer Lifetime Value Distribution")
+        clv_fig = px.histogram(
+            df_analysis,
+            x='customer_lifetime_value',
+            color='value_segment',
+            title="Customer Lifetime Value Distribution by Segment",
+            nbins=30,
+            marginal="box"
+        )
+        st.plotly_chart(clv_fig, use_container_width=True)
+        
+    else:
+        st.warning("MonthlyCharges and tenure columns required for value-based segmentation.")
+
+def behavioral_segmentation(df):
+    """Segment customers by service usage and behavioral patterns."""
+    st.subheader("📈 Behavioral Customer Segmentation")
+    
+    # Define service usage patterns
+    service_columns = [
+        'PhoneService', 'MultipleLines', 'InternetService', 'OnlineSecurity',
+        'OnlineBackup', 'DeviceProtection', 'TechSupport', 'StreamingTV', 'StreamingMovies'
+    ]
+    
+    available_services = [col for col in service_columns if col in df.columns]
+    
+    if available_services:
+        df_analysis = df.copy()
+        
+        # Calculate service adoption score
+        service_scores = []
+        for col in available_services:
+            if col == 'InternetService':
+                score = (df_analysis[col] != 'No').astype(int)
+            else:
+                score = (df_analysis[col] == 'Yes').astype(int)
+            service_scores.append(score)
+        
+        df_analysis['service_adoption_score'] = sum(service_scores)
+        
+        # Create behavioral segments
+        max_score = len(available_services)
+        if max_score > 0:
+            bins = [0, max_score*0.25, max_score*0.5, max_score*0.75, max_score]
+            labels = ['Basic User', 'Light User', 'Moderate User', 'Heavy User']
+            df_analysis['behavioral_segment'] = pd.cut(
+                df_analysis['service_adoption_score'],
+                bins=bins,
+                labels=labels,
+                include_lowest=True
+            )
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Behavioral segment distribution
+                behavior_counts = df_analysis['behavioral_segment'].value_counts()
+                behavior_fig = px.pie(
+                    values=behavior_counts.values,
+                    names=behavior_counts.index,
+                    title="Customer Behavioral Segments",
+                    color_discrete_sequence=px.colors.sequential.Blues
+                )
+                st.plotly_chart(behavior_fig, use_container_width=True)
+            
+            with col2:
+                # Behavioral pattern vs Churn
+                if 'Churn' in df.columns:
+                    churn_by_behavior = df_analysis.groupby('behavioral_segment')['Churn'].apply(
+                        lambda x: (x == 'Yes').mean() * 100
+                    ).reset_index()
+                    churn_by_behavior.columns = ['Behavioral Segment', 'Churn Rate (%)']
+                    
+                    behavior_churn_fig = px.bar(
+                        churn_by_behavior,
+                        x='Behavioral Segment',
+                        y='Churn Rate (%)',
+                        title="Churn Rate by Usage Pattern",
+                        color='Churn Rate (%)',
+                        color_continuous_scale='Viridis'
+                    )
+                    st.plotly_chart(behavior_churn_fig, use_container_width=True)
+            
+            # Service adoption heatmap
+            st.subheader("🔥 Service Adoption Heatmap")
+            
+            # Create service adoption matrix by segment
+            adoption_matrix = []
+            for segment in labels:
+                segment_data = df_analysis[df_analysis['behavioral_segment'] == segment]
+                if len(segment_data) > 0:
+                    adoption_rates = []
+                    for service in available_services:
+                        if service == 'InternetService':
+                            rate = (segment_data[service] != 'No').mean() * 100
+                        else:
+                            rate = (segment_data[service] == 'Yes').mean() * 100
+                        adoption_rates.append(rate)
+                    adoption_matrix.append(adoption_rates)
+            
+            if adoption_matrix:
+                heatmap_fig = px.imshow(
+                    adoption_matrix,
+                    labels=dict(x="Services", y="Customer Segments", color="Adoption Rate (%)"),
+                    x=available_services,
+                    y=labels,
+                    color_continuous_scale='RdYlBu_r',
+                    title="Service Adoption Rate by Customer Segment"
+                )
+                heatmap_fig.update_layout(height=400)
+                st.plotly_chart(heatmap_fig, use_container_width=True)
+    else:
+        st.warning("Service usage columns not found for behavioral segmentation.")
+
+def ml_based_clustering(df):
+    """Perform ML-based customer clustering using K-Means."""
+    st.subheader("🤖 ML-Based Customer Clustering")
+    
+    # Select numerical features for clustering
+    numerical_features = ['tenure', 'MonthlyCharges', 'TotalCharges']
+    available_features = [col for col in numerical_features if col in df.columns]
+    
+    if len(available_features) >= 2:
+        # Prepare data for clustering
+        df_clustering = df[available_features].copy()
+        
+        # Handle missing values
+        df_clustering = df_clustering.fillna(df_clustering.mean())
+        
+        # Convert TotalCharges to numeric if needed
+        if 'TotalCharges' in df_clustering.columns:
+            df_clustering['TotalCharges'] = pd.to_numeric(df_clustering['TotalCharges'], errors='coerce')
+            df_clustering['TotalCharges'] = df_clustering['TotalCharges'].fillna(df_clustering['TotalCharges'].mean())
+        
+        # Standardize features
+        scaler = StandardScaler()
+        features_scaled = scaler.fit_transform(df_clustering)
+        
+        # Elbow method for optimal k
+        st.subheader("📈 Optimal Number of Clusters")
+        
+        k_range = range(2, 8)
+        inertias = []
+        
+        for k in k_range:
+            kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+            kmeans.fit(features_scaled)
+            inertias.append(kmeans.inertia_)
+        
+        # Plot elbow curve
+        elbow_fig = px.line(
+            x=list(k_range),
+            y=inertias,
+            title="Elbow Method for Optimal K",
+            labels={'x': 'Number of Clusters (k)', 'y': 'Within-cluster Sum of Squares'}
+        )
+        elbow_fig.add_scatter(x=list(k_range), y=inertias, mode='markers', marker=dict(size=8))
+        st.plotly_chart(elbow_fig, use_container_width=True)
+        
+        # Cluster selection
+        optimal_k = st.slider("Select Number of Clusters", min_value=2, max_value=7, value=3)
+        
+        # Perform clustering
+        kmeans = KMeans(n_clusters=optimal_k, random_state=42, n_init=10)
+        cluster_labels = kmeans.fit_predict(features_scaled)
+        
+        # Add cluster labels to original data
+        df_clustered = df.copy()
+        df_clustered['cluster'] = [f'Cluster {i+1}' for i in cluster_labels]
+        
+        # Visualize clusters
+        if len(available_features) >= 2:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # 2D cluster visualization
+                cluster_fig = px.scatter(
+                    df_clustered,
+                    x=available_features[0],
+                    y=available_features[1],
+                    color='cluster',
+                    title=f"Customer Clusters ({available_features[0]} vs {available_features[1]})",
+                    hover_data=available_features
+                )
+                st.plotly_chart(cluster_fig, use_container_width=True)
+            
+            with col2:
+                # Cluster size distribution
+                cluster_counts = df_clustered['cluster'].value_counts()
+                cluster_dist_fig = px.pie(
+                    values=cluster_counts.values,
+                    names=cluster_counts.index,
+                    title="Cluster Size Distribution"
+                )
+                st.plotly_chart(cluster_dist_fig, use_container_width=True)
+        
+        # PCA visualization for higher dimensions
+        if len(available_features) > 2:
+            st.subheader("🔍 PCA Visualization")
+            pca = PCA(n_components=2)
+            features_pca = pca.fit_transform(features_scaled)
+            
+            pca_df = pd.DataFrame(features_pca, columns=['PC1', 'PC2'])
+            pca_df['cluster'] = df_clustered['cluster']
+            
+            pca_fig = px.scatter(
+                pca_df,
+                x='PC1',
+                y='PC2',
+                color='cluster',
+                title=f"Customer Clusters in PCA Space (Explained Variance: {pca.explained_variance_ratio_.sum():.2%})"
+            )
+            st.plotly_chart(pca_fig, use_container_width=True)
+        
+        # Cluster characteristics
+        st.subheader("📊 Cluster Characteristics")
+        
+        cluster_stats = []
+        for cluster in df_clustered['cluster'].unique():
+            cluster_data = df_clustered[df_clustered['cluster'] == cluster]
+            stats = {'Cluster': cluster, 'Size': len(cluster_data)}
+            
+            for feature in available_features:
+                stats[f'Avg {feature}'] = cluster_data[feature].mean()
+            
+            if 'Churn' in df_clustered.columns:
+                stats['Churn Rate (%)'] = (cluster_data['Churn'] == 'Yes').mean() * 100
+            
+            cluster_stats.append(stats)
+        
+        cluster_df = pd.DataFrame(cluster_stats)
+        # Round numeric columns
+        numeric_cols = [col for col in cluster_df.columns if 'Avg' in col or 'Rate' in col]
+        for col in numeric_cols:
+            cluster_df[col] = cluster_df[col].round(2)
+        
+        st.dataframe(cluster_df, use_container_width=True)
+        
+        # Download clustered data
+        csv = df_clustered.to_csv(index=False)
         st.download_button(
-            label="Download Filtered Data as CSV",
+            label="📥 Download Clustered Customer Data",
             data=csv,
-            file_name="filtered_customer_data.csv",
+            file_name="clustered_customer_data.csv",
             mime="text/csv"
         )
+        
+    else:
+        st.warning("At least 2 numerical features (tenure, MonthlyCharges, TotalCharges) are required for ML-based clustering.")
 
 def main():
     """Main application function."""
