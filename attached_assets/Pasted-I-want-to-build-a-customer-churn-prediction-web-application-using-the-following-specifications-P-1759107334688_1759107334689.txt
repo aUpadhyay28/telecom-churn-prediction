@@ -1,0 +1,71 @@
+I want to build a customer churn prediction web application using the following specifications:
+
+Project Overview:
+
+The app will predict customer churn based on input customer data using machine learning models.
+
+Use Telecom Churn Data from Kaggle for training and feature engineering.
+
+Frontend:
+
+Create a responsive and user-friendly interface using HTML, CSS, JavaScript, and Bootstrap.
+
+The UI should have input forms for entering customer features such as purchase frequency, last purchase date, total spend, and other relevant info.
+
+Display the churn prediction results clearly in the UI with labels and an interpretation message.
+
+Include basic validation on input fields.
+
+Backend:
+
+Use Python with Flask (or Django) to set up the backend server.
+
+Load pre-trained ML models (Decision Tree, Logistic Regression, Support Vector Regression) using scikit-learn.
+
+Create API endpoints that accept customer feature inputs, process the data, make predictions using each ML model, and return results to the frontend.
+
+Implement error handling and data validation on the backend.
+
+Machine Learning Models:
+
+Train and save Decision Tree Classifier and Logistic Regression models for binary churn classification.
+
+Train and save a Support Vector Regression model if predicting quantitative churn (like time until churn).
+
+Include preprocessing steps like scaling and encoding in the backend to match training.
+
+Provide evaluation metrics of the trained models.
+
+Data:
+
+Use the Kaggle Telecom Churn Data to engineer churn-related features and train models.
+
+Define and implement churn target based on customer inactivity or irregular purchase behavior.
+
+Deployment:
+
+Deploy the app locally on localhost using Flask/Django dev server.
+
+Ensure seamless integration between frontend and backend.
+
+The app should be runnable from a single command with instructions for running locally.
+
+Additional Features:
+
+Provide detailed comments in code for clarity.
+
+Give instructions on how to retrain models with new data.
+
+Optionally, include simple data visualizations on the frontend for customer trends.
+
+Please generate the full project structure and code snippets step-by-step, including:
+
+Data loading, preprocessing, feature engineering, and model training code in Python.
+
+Backend Flask API to serve predictions.
+
+Frontend HTML, CSS, JavaScript code integrated with Bootstrap and calling the backend APIs asynchronously.
+
+Instructions for running and testing the app on localhost.
+
+Start by generating the Python data processing and model training script for this project
