@@ -15,6 +15,7 @@
    6. Feature Engineering for Better Accuracy
 
 🧠Machine Learning Models Used
+   
    Logistic Regression
    Decision Tree Classifier
    Support Vector Machine (SVM)
@@ -25,6 +26,7 @@
      F1-Score
 
 📁 Project Structure
+    
     telecom-churn-prediction/
     │
     ├── app.py                # Streamlit application
