@@ -16,10 +16,10 @@
 
 🧠Machine Learning Models Used
    
-   1.Logistic Regression
-   2.Decision Tree Classifier
-   3.Support Vector Machine (SVM)
-   4.Evaluation Metrics:
+   1. Logistic Regression
+   2. Decision Tree Classifier
+   3. Support Vector Machine (SVM)
+   4. Evaluation Metrics:
      a.Accuracy
      b.Precision
      c.Recall
