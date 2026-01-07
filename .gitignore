@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Streamlit
+.streamlit/
+.local/
+
+# ML models
+models/
+*.joblib
+
+# Config / cache
+.config/
+pages/
+ChurnForecast/
