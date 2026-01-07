@@ -16,14 +16,14 @@
 
 🧠Machine Learning Models Used
    
-   Logistic Regression
-   Decision Tree Classifier
-   Support Vector Machine (SVM)
-   Evaluation Metrics:
-     Accuracy
-     Precision
-     Recall
-     F1-Score
+   1.Logistic Regression
+   2.Decision Tree Classifier
+   3.Support Vector Machine (SVM)
+   4.Evaluation Metrics:
+     a.Accuracy
+     b.Precision
+     c.Recall
+     d.F1-Score
 
 📁 Project Structure
     
